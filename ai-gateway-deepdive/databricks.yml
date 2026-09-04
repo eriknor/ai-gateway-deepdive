@@ -1,0 +1,47 @@
+bundle:
+  name: ai-gateway-deepdive
+
+# =============================================================================
+# TURNKEY RE-DEPLOY -- single source of truth for a fresh FEVM workspace.
+# Edit (1) the target `host` below and (2) any variable whose value changed
+# (catalog + warehouse_id are the usual ones). Everything flows from here:
+#   - app.yml / dashboard.yml read ${var.warehouse_id} and ${var.endpoint_name}
+#   - job_setup.yml passes these vars into 00_setup as base_parameters
+#   - notebooks/_common.py reads the same names (widget/env) with matching defaults
+#   - 00_setup derives the workspace URL from the client (no hardcoded host)
+# Then: point your CLI profile at the same host; run scripts/set_secrets.sh;
+# `databricks bundle deploy`; run the setup job; run notebooks 01-05. Fresh *account*
+# only: an account admin must enable the Unity AI Gateway Beta (account Previews).
+# The dashboard JSON embeds the catalog in its queries -- if the catalog name
+# changes, run the sed in the README "Deploy to a workspace" runbook.
+# =============================================================================
+variables:
+  catalog:
+    description: UC catalog for demo tables
+    # NOTE: ai_gateway_demo cannot be created (no CREATE CATALOG on shared metastore).
+    # Use the FEVM-provisioned catalog which has ALL_PRIVILEGES for this deployment.
+    default: ai_gateway_deepdive_catalog
+  schema:
+    description: UC schema for demo tables
+    default: core
+  endpoint_name:
+    description: Serving endpoint name
+    default: ai-gateway-deepdive
+  secret_scope:
+    description: Secret scope holding the workspace PAT (workspace_pat) used by the gateway external-model entities
+    default: ai_gateway_demo
+  warehouse_id:
+    description: SQL warehouse id for the App metrics + dashboard
+    default: "060617dab4eb0c0c"
+
+include:
+  - resources/app.yml
+  - resources/dashboard.yml
+  - resources/job_setup.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://fevm-ai-gateway-deepdive.cloud.databricks.com   # EDIT: fresh FEVM workspace host

@@ -1,0 +1,6 @@
+resources:
+  dashboards:
+    aigw_dashboard:
+      display_name: Unity AI Gateway - Deep Dive
+      file_path: ../dashboard/ai-gateway-deepdive.lvdash.json
+      warehouse_id: ${var.warehouse_id}

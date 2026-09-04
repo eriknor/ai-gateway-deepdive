@@ -1,0 +1,15 @@
+resources:
+  jobs:
+    aigw_setup:
+      name: ai-gateway-deepdive-setup
+      tasks:
+        - task_key: setup
+          notebook_task:
+            notebook_path: ../notebooks/00_setup.py
+            # Pass the bundle vars into the notebook so 00_setup + _common resolve the
+            # right catalog/schema/endpoint/scope without editing any Python.
+            base_parameters:
+              AIGW_CATALOG: ${var.catalog}
+              AIGW_SCHEMA: ${var.schema}
+              AIGW_ENDPOINT: ${var.endpoint_name}
+              AIGW_SECRET_SCOPE: ${var.secret_scope}

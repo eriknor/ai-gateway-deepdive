@@ -1,0 +1,8 @@
+command: ["streamlit", "run", "app.py"]
+env:
+  - name: ENDPOINT_NAME
+    value: ai-gateway-deepdive
+  - name: MODEL_SERVICE_FQN
+    value: ai_gateway_deepdive_catalog.core.aigw_demo_service
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse

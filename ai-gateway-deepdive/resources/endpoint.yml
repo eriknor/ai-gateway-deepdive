@@ -1,0 +1,91 @@
+# ai-gateway-deepdive/resources/endpoint.yml
+#
+# DOCUMENTATION MIRROR - this file is NOT used by the Databricks bundle to deploy
+# the endpoint. The endpoint is created + updated via the Python SDK in
+# notebooks/00_setup.py because the bundle's serving_endpoint resource schema
+# does not expose the full ai_gateway config (guardrails, fallback, inference
+# table, per-user rate limits). Run 00_setup.py (or the Task 11 job) to
+# deploy/update the live endpoint.
+#
+# This file serves as a human-readable reference for code reviewers and
+# bundle readers who want to understand what the endpoint looks like without
+# reading Python.
+#
+# Live endpoint: https://fevm-ai-gateway-deepdive.cloud.databricks.com
+#   /serving-endpoints/ai-gateway-deepdive
+# ---------------------------------------------------------
+
+# -- Endpoint identity --
+name: ai-gateway-deepdive
+
+# -- Served entities (two internal Foundation Model endpoints via
+#    databricks-model-serving external provider, no external API keys) --
+config:
+  served_entities:
+    - name: llama
+      external_model:
+        name: databricks-meta-llama-3-3-70b-instruct
+        provider: databricks-model-serving
+        task: llm/v1/chat
+        databricks_model_serving_config:
+          databricks_workspace_url: https://fevm-ai-gateway-deepdive.cloud.databricks.com
+          # token stored in secret scope - never inlined in source
+          databricks_api_token: "{{secrets/ai_gateway_demo/workspace_pat}}"
+
+    - name: claude
+      external_model:
+        name: databricks-claude-sonnet-4-5
+        provider: databricks-model-serving
+        task: llm/v1/chat
+        databricks_model_serving_config:
+          databricks_workspace_url: https://fevm-ai-gateway-deepdive.cloud.databricks.com
+          databricks_api_token: "{{secrets/ai_gateway_demo/workspace_pat}}"
+
+  # -- Traffic split: 70 % to Llama, 30 % to Claude --
+  traffic_config:
+    routes:
+      - served_model_name: llama
+        traffic_percentage: 70
+      - served_model_name: claude
+        traffic_percentage: 30
+
+# -- AI Gateway: all four pillars --
+ai_gateway:
+  # Pillar 1: usage tracking (token counts + latency visible in Usage & Cost UI)
+  usage_tracking_config:
+    enabled: true
+
+  # Pillar 2: inference table (full request/response payloads to Delta)
+  inference_table_config:
+    enabled: true
+    # NOTE: ai_gateway_demo cannot be created on this metastore (no CREATE CATALOG).
+    # Using FEVM-provisioned catalog that has ALL_PRIVILEGES.
+    catalog_name: ai_gateway_deepdive_catalog
+    schema_name: core
+    table_name_prefix: aigw
+
+  # Pillar 3: rate limits (per-user 5 rpm + endpoint-wide 200 rpm)
+  rate_limits:
+    - key: USER
+      calls: 5
+      renewal_period: MINUTE
+    - key: ENDPOINT
+      calls: 200
+      renewal_period: MINUTE
+
+  # Pillar 4: guardrails (input + output PII masking and safety)
+  # NOTE: guardrail enforcement on databricks-model-serving external entities
+  # may differ from native FM endpoints. See Task 6 for behavioral verification.
+  guardrails:
+    input:
+      safety: true
+      pii:
+        behavior: MASK
+    output:
+      safety: true
+      pii:
+        behavior: MASK
+
+  # Cross-entity fallback (retries on the other entity if one fails)
+  fallback_config:
+    enabled: true

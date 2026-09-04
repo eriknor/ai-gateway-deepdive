@@ -1,0 +1,14 @@
+resources:
+  apps:
+    aigw_app:
+      name: ai-gateway-deepdive
+      source_code_path: ../app
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: serving-endpoint
+          serving_endpoint:
+            name: ${var.endpoint_name}
+            permission: CAN_QUERY

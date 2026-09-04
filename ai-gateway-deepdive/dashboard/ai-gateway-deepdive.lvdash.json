@@ -1,0 +1,712 @@
+{
+  "datasets": [
+    {
+      "name": "ds_requests_over_time",
+      "displayName": "Requests over time",
+      "queryLines": [
+        "SELECT ",
+        "  date_trunc('hour', request_time) AS hour_bucket, ",
+        "  count(*) AS total_requests, ",
+        "  count(CASE WHEN status_code != 200 THEN 1 END) AS non_200_count, ",
+        "  count(CASE WHEN status_code = 200 THEN 1 END) AS pass_through_count ",
+        "FROM ai_gateway_deepdive_catalog.core.aigw_payload ",
+        "GROUP BY hour_bucket ",
+        "ORDER BY hour_bucket"
+      ]
+    },
+    {
+      "name": "ds_tokens_by_day",
+      "displayName": "Tokens by model and day",
+      "queryLines": [
+        "SELECT ",
+        "  CASE WHEN get_json_object(response, '$.model') LIKE '%llama%' THEN 'llama' ",
+        "       WHEN get_json_object(response, '$.model') LIKE '%anthropic%' ",
+        "         OR get_json_object(response, '$.model') LIKE '%claude%' THEN 'claude' ",
+        "       ELSE 'other' END AS provider, ",
+        "  date_trunc('DAY', request_time) AS request_day, ",
+        "  sum(CAST(get_json_object(response, '$.usage.total_tokens') AS INT)) AS total_tokens ",
+        "FROM ai_gateway_deepdive_catalog.core.aigw_payload ",
+        "WHERE status_code = 200 ",
+        "  AND get_json_object(response, '$.model') IS NOT NULL ",
+        "GROUP BY provider, request_day ",
+        "ORDER BY request_day, provider"
+      ]
+    },
+    {
+      "name": "ds_guardrail",
+      "displayName": "Guardrail events",
+      "queryLines": [
+        "SELECT ",
+        "  guardrail_action, ",
+        "  count(*) AS event_count ",
+        "FROM ai_gateway_deepdive_catalog.core.guardrail_events ",
+        "GROUP BY guardrail_action ",
+        "ORDER BY event_count DESC"
+      ]
+    },
+    {
+      "name": "ds_provider_mix",
+      "displayName": "Provider mix",
+      "queryLines": [
+        "SELECT ",
+        "  CASE WHEN get_json_object(response, '$.model') LIKE '%llama%' THEN 'llama' ",
+        "       WHEN get_json_object(response, '$.model') LIKE '%anthropic%' ",
+        "         OR get_json_object(response, '$.model') LIKE '%claude%' THEN 'claude' ",
+        "       ELSE 'other (blocked before routing)' END AS provider, ",
+        "  count(*) AS request_count, ",
+        "  round(100.0 * count(*) / sum(count(*)) OVER (), 1) AS pct_of_total ",
+        "FROM ai_gateway_deepdive_catalog.core.aigw_payload ",
+        "GROUP BY provider ",
+        "ORDER BY request_count DESC"
+      ]
+    },
+    {
+      "name": "ds_latency",
+      "displayName": "Latency by provider",
+      "queryLines": [
+        "SELECT ",
+        "  CASE WHEN get_json_object(response, '$.model') LIKE '%llama%' THEN 'llama' ",
+        "       WHEN get_json_object(response, '$.model') LIKE '%anthropic%' ",
+        "         OR get_json_object(response, '$.model') LIKE '%claude%' THEN 'claude' ",
+        "       ELSE 'other (blocked before routing)' END AS provider, ",
+        "  count(*) AS request_count, ",
+        "  percentile(execution_duration_ms, 0.5) AS p50_ms, ",
+        "  percentile(execution_duration_ms, 0.95) AS p95_ms ",
+        "FROM ai_gateway_deepdive_catalog.core.aigw_payload ",
+        "WHERE status_code = 200 ",
+        "  AND get_json_object(response, '$.model') IS NOT NULL ",
+        "GROUP BY provider ",
+        "ORDER BY p50_ms"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "main",
+      "displayName": "Overview",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Unity AI Gateway - Deep Dive"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "framing",
+            "multilineTextboxSpec": {
+              "lines": [
+                "**Two Unity AI Gateway paths -- this dashboard shows legacy endpoint data only.** Endpoint AI Gateway overlay (legacy v1/v2, being deprecated): workspace serving endpoint `ai-gateway-deepdive` -- usage tracking, access control, payload logging, guardrails (PII and safety), and traffic split (70/30 llama/claude). The endpoint enforces RPM/TPM rate limits with real HTTP 429 (verified live); a calls=0 setting additionally hard-blocks (HTTP 403) -- the documented migration off-ramp. UC model service (v3, GA): `aigw_demo_service` (notebooks 01-04 + the App model-service tab) also produces real HTTP 429 and service-policy blocks; its traffic is NOT captured in aigw_payload. The model service's edge is UC-native governance, not rate limiting itself. **Note:** Inference table is best-effort with approx 2h ingestion lag. Source: ai_gateway_deepdive_catalog.core.aigw_payload. _GA/Beta status, enforcement rollout, and deprecation dates are subject to change; verify against current Databricks documentation._"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-total-requests",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_requests_over_time",
+                  "fields": [
+                    {
+                      "name": "sum(total_requests)",
+                      "expression": "SUM(`total_requests`)"
+                    },
+                    {
+                      "name": "hour_bucket",
+                      "expression": "`hour_bucket`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_requests)",
+                  "displayName": "Total Requests"
+                },
+                "period": {
+                  "fieldName": "hour_bucket"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Requests [RUNTIME]"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-blocked",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_requests_over_time",
+                  "fields": [
+                    {
+                      "name": "sum(non_200_count)",
+                      "expression": "SUM(`non_200_count`)"
+                    },
+                    {
+                      "name": "hour_bucket",
+                      "expression": "`hour_bucket`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(non_200_count)",
+                  "displayName": "Blocked / Non-200"
+                },
+                "period": {
+                  "fieldName": "hour_bucket"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Blocked Requests [RUNTIME]"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-passthrough",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_requests_over_time",
+                  "fields": [
+                    {
+                      "name": "sum(pass_through_count)",
+                      "expression": "SUM(`pass_through_count`)"
+                    },
+                    {
+                      "name": "hour_bucket",
+                      "expression": "`hour_bucket`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(pass_through_count)",
+                  "displayName": "Pass-through (200)"
+                },
+                "period": {
+                  "fieldName": "hour_bucket"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Pass-through Requests [RUNTIME]"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "section-usage-cost",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Evidence and Cost"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "tokens-by-day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_tokens_by_day",
+                  "fields": [
+                    {
+                      "name": "request_day",
+                      "expression": "`request_day`"
+                    },
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    },
+                    {
+                      "name": "total_tokens",
+                      "expression": "`total_tokens`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_day",
+                  "displayName": "Day",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "total_tokens",
+                  "displayName": "Total Tokens",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "provider",
+                  "displayName": "Model",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Tokens by Model / Day [EVIDENCE/COST]",
+                "description": "Source: aigw_payload (status=200, model non-null)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "requests-over-time",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_requests_over_time",
+                  "fields": [
+                    {
+                      "name": "hour_bucket",
+                      "expression": "`hour_bucket`"
+                    },
+                    {
+                      "name": "total_requests",
+                      "expression": "`total_requests`"
+                    },
+                    {
+                      "name": "non_200_count",
+                      "expression": "`non_200_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "mark": {
+                "layout": "group"
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "hour_bucket",
+                  "displayName": "Hour",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "total_requests",
+                      "displayName": "Total Requests"
+                    },
+                    {
+                      "fieldName": "non_200_count",
+                      "displayName": "Blocked / Non-200"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Request Volume + Blocked Count Over Time [RUNTIME]",
+                "description": "Blocks = status != 200 (gateway BLOCK path). Throttle 429s on the model-service path appear in notebook 02 and the App model-service flood tab."
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 7,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "section-guardrails-mix",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Guardrails and Model Mix"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "guardrail-triggers",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_guardrail",
+                  "fields": [
+                    {
+                      "name": "guardrail_action",
+                      "expression": "`guardrail_action`"
+                    },
+                    {
+                      "name": "event_count",
+                      "expression": "`event_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "guardrail_action",
+                  "displayName": "Guardrail Action",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "event_count",
+                  "displayName": "Event Count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "guardrail_action",
+                  "displayName": "Action",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "guardrail_block",
+                        "color": "#E15759"
+                      },
+                      {
+                        "value": "guardrail_mask",
+                        "color": "#00A99D"
+                      },
+                      {
+                        "value": "rate_limit",
+                        "color": "#F59770"
+                      },
+                      {
+                        "value": "permission_block",
+                        "color": "#594E90"
+                      },
+                      {
+                        "value": "upstream_error",
+                        "color": "#FFD84A"
+                      },
+                      {
+                        "value": "none",
+                        "color": "#59A14F"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Request Classification by Reason [POLICY]",
+                "description": "guardrail_block = input/output guardrail fired (HTTP 400, flagged=true). guardrail_mask = output PII masked to type labels (HTTP 200, pii_detection=true). rate_limit = 429. permission_block = 403. upstream_error = non-guardrail 400/404. none = 200 pass-through."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "provider-mix",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_provider_mix",
+                  "fields": [
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    },
+                    {
+                      "name": "request_count",
+                      "expression": "`request_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "request_count",
+                  "displayName": "Requests",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "provider",
+                  "displayName": "Provider",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Model Mix [RUNTIME]",
+                "description": "Source: aigw_payload (all requests). 'other (blocked before routing)' = requests blocked before model routing (null response.model)."
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 13,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "provider-mix-note",
+            "multilineTextboxSpec": {
+              "lines": [
+                "**Configured traffic split:** 70% llama / 30% claude. 'other (blocked before routing)' = requests blocked before model routing (null response.model). Actual split reflects all requests including gateway blocks."
+              ]
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 17,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "section-latency",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Latency - Successful Requests Only"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "latency-by-provider",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_latency",
+                  "fields": [
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    },
+                    {
+                      "name": "p50_ms",
+                      "expression": "`p50_ms`"
+                    },
+                    {
+                      "name": "p95_ms",
+                      "expression": "`p95_ms`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "mark": {
+                "layout": "group"
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "provider",
+                  "displayName": "Provider",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "p50_ms",
+                      "displayName": "p50 (ms)"
+                    },
+                    {
+                      "fieldName": "p95_ms",
+                      "displayName": "p95 (ms)"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Latency p50 / p95 by Model [EVIDENCE]",
+                "description": "Source: aigw_payload (status=200 only). execution_duration_ms = inference time, excludes network overhead."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 12,
+            "height": 5
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F8F9FA",
+        "dark": "#1A2332"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#0F1923"
+      },
+      "fontColor": {
+        "light": "#1A2332",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#2272B4",
+        "#F59770",
+        "#59A14F",
+        "#E15759",
+        "#FFD84A",
+        "#594E90",
+        "#00A99D"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}
